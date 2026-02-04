@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Labeling Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="config.js" onerror="console.log('No config.js found, using auto-detect')"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; }
+
+        .container { display: flex; height: 100vh; }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .sidebar h2 { margin-bottom: 15px; font-size: 16px; color: #3498db; }
+        .sidebar h3 { margin: 10px 0; font-size: 14px; color: #bdc3c7; }
+        .sidebar select, .sidebar input[type="text"], .sidebar button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .sidebar input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            background: #34495e;
+            border-radius: 5px;
+            color: white;
+        }
+        .sidebar button {
+            background: #3498db;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .sidebar button:hover { background: #2980b9; }
+        .sidebar button.success { background: #27ae60; }
+        .sidebar button.success:hover { background: #219a52; }
+        .sidebar button.danger { background: #e74c3c; }
+        .sidebar button.danger:hover { background: #c0392b; }
+        .sidebar button.warning { background: #f39c12; }
+        .sidebar button:disabled { background: #7f8c8d; cursor: not-allowed; }
+
+        .divider { border-top: 1px solid #34495e; margin: 20px 0; }
+
+        .nav-buttons { display: flex; gap: 10px; }
+        .nav-buttons button { flex: 1; }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #34495e;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #27ae60;
+            transition: width 0.3s;
+        }
+
+        .video-list {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #34495e;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .video-item {
+            padding: 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #2c3e50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .video-item:hover { background: #3d566e; }
+        .video-item.selected { background: #3498db; }
+        .video-item .info { font-size: 12px; color: #bdc3c7; }
+        .video-item .status {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: #27ae60;
+        }
+        .video-item .status.pending { background: #f39c12; }
+        .delete-video-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 5px;
+            margin-left: 5px;
+            border-radius: 3px;
+            opacity: 0.6;
+            transition: all 0.2s;
+        }
+        .delete-video-btn:hover {
+            background: #e74c3c;
+            opacity: 1;
+        }
+
+        /* Delete confirmation modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 450px;
+            text-align: center;
+        }
+        .modal-content h3 {
+            color: #e74c3c;
+            margin-bottom: 15px;
+        }
+        .modal-content p {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .modal-content .warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            color: #856404;
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .modal-buttons button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .modal-btn-cancel { background: #95a5a6; color: white; }
+        .modal-btn-delete { background: #e74c3c; color: white; }
+
+        /* Main area */
+        .main { flex: 1; padding: 20px; display: flex; flex-direction: column; }
+
+        .info-bar {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .canvas-container {
+            flex: 1;
+            background: #1a1a1a;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        .action-buttons button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .btn-save { background: #3498db; color: white; }
+        .btn-approve { background: #27ae60; color: white; }
+        .btn-reject { background: #e74c3c; color: white; }
+        .btn-clear { background: #95a5a6; color: white; }
+        .btn-auto { background: #9b59b6; color: white; }
+
+        /* Labels panel */
+        .labels-panel {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .label-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .label-item:hover { background: #f8f9fa; }
+        .label-item select {
+            padding: 5px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+            flex: 1;
+        }
+        .label-item .delete-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .class-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            display: inline-block;
+            border: 2px solid white;
+            box-shadow: 0 0 3px rgba(0,0,0,0.3);
+        }
+
+        /* Keyboard shortcuts info */
+        .shortcuts {
+            font-size: 11px;
+            color: #7f8c8d;
+            margin-top: 15px;
+            line-height: 1.8;
+        }
+        .shortcuts kbd {
+            background: #34495e;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        /* Upload area */
+        .upload-area {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            background: rgba(52, 152, 219, 0.1);
+        }
+        .upload-area.dragover {
+            background: rgba(52, 152, 219, 0.2);
+            border-color: #2980b9;
+        }
+
+        /* Notification */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 5px;
+            font-weight: bold;
+            z-index: 9999;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h2>📁 FOLDER UPLOAD</h2>
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('folderInput').click()">
+                <p>📂 Click to select folder</p>
+                <p style="font-size: 12px; color: #7f8c8d;">or drag & drop AVI files</p>
+            </div>
+            <input type="file" id="folderInput" webkitdirectory multiple accept=".avi,.mp4,.mov,.mkv" style="display:none" onchange="handleFolderSelect(this.files)">
+
+            <input type="text" id="folderName" placeholder="Folder name (optional)">
+
+            <label style="font-size: 12px;">Frame Interval:</label>
+            <select id="intervalSelect">
+                <option value="5">Every 5 seconds</option>
+                <option value="10" selected>Every 10 seconds</option>
+                <option value="15">Every 15 seconds</option>
+                <option value="30">Every 30 seconds</option>
+            </select>
+
+            <button id="uploadBtn" onclick="uploadAndExtract()" disabled>📤 Upload & Extract Frames</button>
+
+            <div class="progress-bar" id="progressBar" style="display:none;">
+                <div class="progress-bar-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <div id="uploadStatus" style="font-size: 12px; margin-bottom: 10px;"></div>
+
+            <div class="divider"></div>
+
+            <h2>📹 VIDEOS</h2>
+            <button onclick="loadVideos()">🔄 Refresh List</button>
+            <div class="video-list" id="videoList">
+                <p style="padding: 10px; color: #7f8c8d;">No videos yet</p>
+            </div>
+
+            <div class="divider"></div>
+
+            <h2>🎯 NAVIGATION</h2>
+            <div style="margin-bottom: 10px; font-size: 14px;">
+                <span id="frameInfo">Frame: 0 / 0</span>
+            </div>
+            <input type="range" id="frameSlider" min="0" max="0" value="0" onchange="goToFrame(this.value)" style="width: 100%; margin-bottom: 10px;">
+            <div class="nav-buttons">
+                <button onclick="prevFrame()">◀ Prev</button>
+                <button onclick="nextFrame()">Next ▶</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <h2>🏷️ CLASS</h2>
+            <select id="classSelect" onchange="updateSelectedClass()">
+                <option value="person">person</option>
+                <option value="car">car</option>
+                <option value="falldown">falldown</option>
+                <option value="bus">bus</option>
+                <option value="truck">truck</option>
+                <option value="bicycle">bicycle</option>
+                <option value="motorcycle">motorcycle</option>
+                <option value="boar">boar</option>
+                <option value="tractor">tractor</option>
+                <option value="scooter">scooter</option>
+                <option value="cat">cat</option>
+                <option value="dog">dog</option>
+            </select>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                <div id="classColorPreview" class="class-color" style="background: #FF0000;"></div>
+                <span id="classNamePreview" style="font-size: 14px;">person</span>
+            </div>
+
+            <div class="divider"></div>
+
+            <h2>⚙️ AUTO-LABEL SETTINGS</h2>
+            <label style="font-size: 12px;">Confidence: <span id="confValue">0.35</span></label>
+            <input type="range" id="confidenceSlider" min="0.1" max="1.0" step="0.05" value="0.35" style="width: 100%;"
+                   oninput="document.getElementById('confValue').textContent = parseFloat(this.value).toFixed(2)">
+
+            <div class="divider"></div>
+
+            <div class="shortcuts">
+                <strong>⌨️ Shortcuts:</strong><br>
+                <kbd>A</kbd> <kbd>←</kbd> Prev frame<br>
+                <kbd>D</kbd> <kbd>→</kbd> Next frame<br>
+                <kbd>S</kbd> Save labels<br>
+                <kbd>Enter</kbd> Approve & Next<br>
+                <kbd>Del</kbd> Delete selected<br>
+                <kbd>Y</kbd> Auto-label
+            </div>
+        </div>
+
+        <!-- Main content -->
+        <div class="main">
+            <div class="info-bar">
+                <span id="statusInfo">📂 Upload a folder to start</span>
+                <span id="labelCount">Labels: 0</span>
+            </div>
+
+            <div class="canvas-container">
+                <canvas id="canvas"></canvas>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn-auto" onclick="runAutoLabel()">🤖 Auto-Label (Y)</button>
+                <button class="btn-save" onclick="saveLabels()">💾 Save (S)</button>
+                <button class="btn-approve" onclick="approveFrame()">✅ Approve (Enter)</button>
+                <button class="btn-reject" onclick="rejectFrame()">❌ Reject</button>
+                <button class="btn-clear" onclick="clearLabels()">🗑️ Clear All</button>
+            </div>
+
+            <div class="labels-panel">
+                <h3 style="margin-bottom: 10px;">📋 Labels (click dropdown to change class)</h3>
+                <div id="labelsList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Configuration
+        const API_BASE = window.API_BASE || `${window.location.protocol}//${window.location.hostname}:8000/api`;
+
+        const CLASS_COLORS = {
+            person: '#FF0000', car: '#0000FF', falldown: '#FFFF00',
+            bus: '#00FF00', truck: '#800080', bicycle: '#FFA500',
+            motorcycle: '#00FFFF', boar: '#8B4513', tractor: '#CCCCCC',
+            scooter: '#FFC0CB', cat: '#32CD32', dog: '#FFD700'
+        };
+
+        const CLASS_NAMES = Object.keys(CLASS_COLORS);
+
+        // State
+        let canvas;
+        let currentVideoId = null;
+        let currentFrameId = null;
+        let currentFrameIndex = 0;
+        let framesList = [];
+        let currentLabels = [];
+        let selectedClass = 'person';
+        let imageWidth = 0;
+        let imageHeight = 0;
+        let scale = 1;
+        let pendingFiles = [];
+
+        // Initialize
+        window.onload = function() {
+            initCanvas();
+            loadVideos();
+            updateSelectedClass();
+            setupDragDrop();
+        };
+
+        // Drag & Drop setup
+        function setupDragDrop() {
+            const uploadArea = document.getElementById('uploadArea');
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+                uploadArea.addEventListener(evt, e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            });
+
+            ['dragenter', 'dragover'].forEach(evt => {
+                uploadArea.addEventListener(evt, () => uploadArea.classList.add('dragover'));
+            });
+
+            ['dragleave', 'drop'].forEach(evt => {
+                uploadArea.addEventListener(evt, () => uploadArea.classList.remove('dragover'));
+            });
+
+            uploadArea.addEventListener('drop', e => {
+                const files = e.dataTransfer.files;
+                handleFolderSelect(files);
+            });
+        }
+
+        // Handle folder selection
+        function handleFolderSelect(files) {
+            pendingFiles = Array.from(files).filter(f =>
+                f.name.toLowerCase().endsWith('.avi') ||
+                f.name.toLowerCase().endsWith('.mp4') ||
+                f.name.toLowerCase().endsWith('.mov') ||
+                f.name.toLowerCase().endsWith('.mkv')
+            );
+
+            if (pendingFiles.length === 0) {
+                showNotification('No video files found (AVI, MP4, MOV, MKV)', 'warning');
+                return;
+            }
+
+            document.getElementById('uploadBtn').disabled = false;
+            document.getElementById('uploadStatus').textContent = `${pendingFiles.length} video(s) selected`;
+            showNotification(`Found ${pendingFiles.length} video files`, 'success');
+        }
+
+        // Upload and extract frames
+        async function uploadAndExtract() {
+            if (pendingFiles.length === 0) return;
+
+            const folderName = document.getElementById('folderName').value || 'videos';
+            const interval = document.getElementById('intervalSelect').value;
+
+            document.getElementById('progressBar').style.display = 'block';
+            document.getElementById('uploadBtn').disabled = true;
+
+            let completed = 0;
+            const total = pendingFiles.length;
+
+            for (const file of pendingFiles) {
+                document.getElementById('uploadStatus').textContent = `Uploading: ${file.name}`;
+
+                try {
+                    // Upload video
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('folder_name', folderName);
+
+                    const uploadRes = await fetch(`${API_BASE}/videos/upload`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const uploadData = await uploadRes.json();
+
+                    if (uploadData.video_id) {
+                        // Extract frames
+                        document.getElementById('uploadStatus').textContent = `Extracting frames: ${file.name}`;
+
+                        const extractRes = await fetch(`${API_BASE}/videos/${uploadData.video_id}/extract`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ frame_interval: parseInt(interval) })
+                        });
+                        const extractData = await extractRes.json();
+
+                        console.log(`${file.name}: ${extractData.frames_extracted} frames`);
+                    }
+                } catch (err) {
+                    console.error(`Error with ${file.name}:`, err);
+                }
+
+                completed++;
+                document.getElementById('progressFill').style.width = `${(completed/total)*100}%`;
+            }
+
+            document.getElementById('uploadStatus').textContent = `✅ Done! ${completed} videos processed`;
+            document.getElementById('uploadBtn').disabled = false;
+            pendingFiles = [];
+
+            showNotification(`Uploaded ${completed} videos`, 'success');
+            loadVideos();
+        }
+
+        // Initialize Fabric canvas
+        function initCanvas() {
+            canvas = new fabric.Canvas('canvas', {
+                selection: true,
+                preserveObjectStacking: true
+            });
+
+            let isDrawing = false;
+            let startX, startY;
+            let tempRect;
+
+            canvas.on('mouse:down', function(opt) {
+                if (opt.target) return;
+
+                isDrawing = true;
+                const pointer = canvas.getPointer(opt.e);
+                startX = pointer.x;
+                startY = pointer.y;
+
+                tempRect = new fabric.Rect({
+                    left: startX,
+                    top: startY,
+                    width: 0,
+                    height: 0,
+                    fill: 'transparent',
+                    stroke: CLASS_COLORS[selectedClass],
+                    strokeWidth: 3,
+                    selectable: true,
+                    className: selectedClass,
+                    labelConfidence: null,
+                    labelSource: 'manual'
+                });
+                canvas.add(tempRect);
+            });
+
+            canvas.on('mouse:move', function(opt) {
+                if (!isDrawing || !tempRect) return;
+
+                const pointer = canvas.getPointer(opt.e);
+
+                if (pointer.x < startX) tempRect.set({ left: pointer.x });
+                if (pointer.y < startY) tempRect.set({ top: pointer.y });
+
+                tempRect.set({
+                    width: Math.abs(pointer.x - startX),
+                    height: Math.abs(pointer.y - startY)
+                });
+
+                canvas.renderAll();
+            });
+
+            canvas.on('mouse:up', function(opt) {
+                if (!isDrawing || !tempRect) return;
+                isDrawing = false;
+
+                if (tempRect.width < 10 || tempRect.height < 10) {
+                    canvas.remove(tempRect);
+                } else {
+                    // Add text label
+                    addLabelText(tempRect);
+                    tempRect.setCoords();
+                    updateLabelsFromCanvas();
+                }
+                tempRect = null;
+            });
+
+            canvas.on('object:modified', function(e) {
+                if (e.target && e.target.type === 'rect') {
+                    updateLabelTextPosition(e.target);
+                }
+                updateLabelsFromCanvas();
+            });
+
+            canvas.on('object:removed', updateLabelsFromCanvas);
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', function(e) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+                switch(e.key) {
+                    case 'a':
+                    case 'ArrowLeft':
+                        prevFrame();
+                        break;
+                    case 'd':
+                    case 'ArrowRight':
+                        nextFrame();
+                        break;
+                    case 's':
+                        saveLabels();
+                        e.preventDefault();
+                        break;
+                    case 'Enter':
+                        approveFrame();
+                        e.preventDefault();
+                        break;
+                    case 'Delete':
+                        deleteSelected();
+                        break;
+                    case 'y':
+                        runAutoLabel();
+                        break;
+                }
+            });
+        }
+
+        // Add text label to rect
+        function addLabelText(rect) {
+            const text = new fabric.Text(rect.className, {
+                left: rect.left,
+                top: rect.top - 20,
+                fontSize: 14 / scale,
+                fill: rect.stroke,
+                fontWeight: 'bold',
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                padding: 3,
+                selectable: false,
+                evented: false,
+                rectRef: rect
+            });
+            rect.textRef = text;
+            canvas.add(text);
+        }
+
+        // Update label text position
+        function updateLabelTextPosition(rect) {
+            if (rect.textRef) {
+                rect.textRef.set({
+                    left: rect.left,
+                    top: rect.top - 20
+                });
+                canvas.renderAll();
+            }
+        }
+
+        // API functions
+        async function apiGet(endpoint, params = {}) {
+            const url = new URL(API_BASE + endpoint);
+            Object.keys(params).forEach(k => url.searchParams.append(k, params[k]));
+            const res = await fetch(url);
+            return res.json();
+        }
+
+        async function apiPost(endpoint, data = {}) {
+            const res = await fetch(API_BASE + endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return res.json();
+        }
+
+        async function apiPut(endpoint, data = {}) {
+            const res = await fetch(API_BASE + endpoint, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return res.json();
+        }
+
+        // Load videos
+        async function loadVideos() {
+            const videos = await apiGet('/videos');
+            const listEl = document.getElementById('videoList');
+
+            if (!videos || videos.length === 0) {
+                listEl.innerHTML = '<p style="padding: 10px; color: #7f8c8d;">No videos yet</p>';
+                return;
+            }
+
+            listEl.innerHTML = '';
+            videos.forEach(v => {
+                const pending = v.frames_count - v.approved_count;
+                const div = document.createElement('div');
+                div.className = 'video-item' + (v.video_id === currentVideoId ? ' selected' : '');
+                div.innerHTML = `
+                    <div style="flex: 1;" onclick="selectVideo('${v.video_id}', event)">
+                        <div style="font-size: 13px;">${v.filename.substring(0, 20)}${v.filename.length > 20 ? '...' : ''}</div>
+                        <div class="info">${v.frames_count} frames | ✅ ${v.approved_count}</div>
+                    </div>
+                    <span class="status ${pending > 0 ? 'pending' : ''}">${pending > 0 ? pending + ' left' : 'Done'}</span>
+                    <button class="delete-video-btn" onclick="confirmDeleteVideo('${v.video_id}', '${v.filename.replace(/'/g, "\\'")}', event)" title="Videoyu sil">🗑️</button>
+                `;
+                listEl.appendChild(div);
+            });
+        }
+
+        // Select video
+        async function selectVideo(videoId, event) {
+            if (event) event.stopPropagation();
+            currentVideoId = videoId;
+
+            // Update selection UI
+            document.querySelectorAll('.video-item').forEach(el => el.classList.remove('selected'));
+            if (event && event.currentTarget.closest) {
+                event.currentTarget.closest('.video-item').classList.add('selected');
+            }
+
+            const result = await apiGet(`/videos/${videoId}/frames`, { limit: 1000 });
+
+            if (result && result.frames && result.frames.length > 0) {
+                framesList = result.frames;
+                currentFrameIndex = 0;
+
+                document.getElementById('frameSlider').max = framesList.length - 1;
+                document.getElementById('frameSlider').value = 0;
+
+                loadCurrentFrame();
+                showNotification(`Loaded ${framesList.length} frames`, 'success');
+            } else {
+                showNotification('No frames found', 'warning');
+            }
+        }
+
+        // Load current frame
+        async function loadCurrentFrame() {
+            if (!framesList.length || !currentVideoId) return;
+
+            const frameInfo = framesList[currentFrameIndex];
+            currentFrameId = frameInfo.frame_id;
+
+            document.getElementById('frameInfo').textContent = `Frame: ${currentFrameIndex + 1} / ${framesList.length}`;
+            document.getElementById('frameSlider').value = currentFrameIndex;
+
+            const frameData = await apiGet(`/frames/${currentVideoId}/${currentFrameId}`);
+            if (!frameData) return;
+
+            currentLabels = frameData.labels || [];
+
+            const statusIcon = frameData.status === 'approved' ? '✅' : frameData.status === 'rejected' ? '❌' : '⏳';
+            document.getElementById('statusInfo').textContent = `${statusIcon} Frame ${currentFrameIndex + 1} | Status: ${frameData.status}`;
+            document.getElementById('labelCount').textContent = `Labels: ${currentLabels.length}`;
+
+            loadImageToCanvas(`${API_BASE}/frames/${currentVideoId}/${currentFrameId}/image`);
+            updateLabelsList();
+        }
+
+        // Load image to canvas
+        function loadImageToCanvas(imageUrl) {
+            fabric.Image.fromURL(imageUrl, function(img) {
+                const container = document.querySelector('.canvas-container');
+                const maxWidth = container.clientWidth - 40;
+                const maxHeight = container.clientHeight - 40;
+
+                scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+
+                imageWidth = img.width;
+                imageHeight = img.height;
+
+                canvas.setWidth(img.width * scale);
+                canvas.setHeight(img.height * scale);
+                canvas.setZoom(scale);
+
+                canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
+                    scaleX: 1,
+                    scaleY: 1
+                });
+
+                drawLabelsOnCanvas();
+            }, { crossOrigin: 'anonymous' });
+        }
+
+        // Draw labels on canvas with class names
+        function drawLabelsOnCanvas() {
+            // Remove existing objects
+            canvas.getObjects().forEach(obj => canvas.remove(obj));
+
+            currentLabels.forEach((label, idx) => {
+                const cx = label.x_center * imageWidth;
+                const cy = label.y_center * imageHeight;
+                const w = label.width * imageWidth;
+                const h = label.height * imageHeight;
+                const color = CLASS_COLORS[label.class_name] || '#FF0000';
+
+                // Rectangle (store confidence/source for later retrieval)
+                const rect = new fabric.Rect({
+                    left: cx - w/2,
+                    top: cy - h/2,
+                    width: w,
+                    height: h,
+                    fill: 'transparent',
+                    stroke: color,
+                    strokeWidth: 3 / scale,
+                    selectable: true,
+                    className: label.class_name,
+                    labelIndex: idx,
+                    labelConfidence: label.confidence || null,
+                    labelSource: label.source || 'manual'
+                });
+
+                // Text label with confidence
+                const conf = label.confidence && label.confidence > 0 ? (label.confidence * 100).toFixed(0) : null;
+                const labelText = conf ? `${label.class_name} ${conf}%` : label.class_name;
+                const text = new fabric.Text(labelText, {
+                    left: cx - w/2,
+                    top: cy - h/2 - 20 / scale,
+                    fontSize: 14 / scale,
+                    fill: color,
+                    fontWeight: 'bold',
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    padding: 3,
+                    selectable: false,
+                    evented: false,
+                    rectRef: rect
+                });
+
+                rect.textRef = text;
+                canvas.add(rect);
+                canvas.add(text);
+            });
+
+            canvas.renderAll();
+        }
+
+        // Update labels from canvas (preserves confidence/source from original labels)
+        function updateLabelsFromCanvas() {
+            currentLabels = [];
+            canvas.getObjects('rect').forEach(obj => {
+                const cx = (obj.left + obj.width * obj.scaleX / 2) / imageWidth;
+                const cy = (obj.top + obj.height * obj.scaleY / 2) / imageHeight;
+                const w = (obj.width * obj.scaleX) / imageWidth;
+                const h = (obj.height * obj.scaleY) / imageHeight;
+
+                currentLabels.push({
+                    class_name: obj.className || selectedClass,
+                    class_id: CLASS_NAMES.indexOf(obj.className || selectedClass),
+                    x_center: cx,
+                    y_center: cy,
+                    width: w,
+                    height: h,
+                    // Preserve original confidence and source from rect object
+                    confidence: obj.labelConfidence || null,
+                    source: obj.labelSource || 'manual'
+                });
+            });
+
+            document.getElementById('labelCount').textContent = `Labels: ${currentLabels.length}`;
+            updateLabelsList();
+        }
+
+        // Update labels list
+        function updateLabelsList() {
+            const container = document.getElementById('labelsList');
+
+            if (currentLabels.length === 0) {
+                container.innerHTML = '<p style="color: #7f8c8d; padding: 10px;">No labels. Draw boxes or use Auto-Label.</p>';
+                return;
+            }
+
+            container.innerHTML = '';
+            currentLabels.forEach((label, idx) => {
+                const div = document.createElement('div');
+                div.className = 'label-item';
+                const conf = label.confidence && label.confidence > 0 ? (label.confidence * 100).toFixed(0) : null;
+                const isAuto = label.source === 'auto' || (conf && conf > 0);
+                const confColor = conf ? (conf >= 70 ? '#27ae60' : conf >= 50 ? '#f39c12' : '#e74c3c') : '#7f8c8d';
+                const confText = isAuto ? `auto ${conf || '?'}%` : 'manual';
+                div.innerHTML = `
+                    <span style="width: 30px; font-weight: bold;">#${idx + 1}</span>
+                    <div class="class-color" style="background: ${CLASS_COLORS[label.class_name]}"></div>
+                    <select onchange="changeLabelClass(${idx}, this.value)">
+                        ${CLASS_NAMES.map(c => `<option value="${c}" ${c === label.class_name ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select>
+                    <span style="width: 70px; text-align: center; font-weight: bold; color: ${confColor}; font-size: 12px;">${confText}</span>
+                    <button class="delete-btn" onclick="deleteLabel(${idx})">🗑️</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Change label class
+        function changeLabelClass(idx, newClass) {
+            currentLabels[idx].class_name = newClass;
+            currentLabels[idx].class_id = CLASS_NAMES.indexOf(newClass);
+
+            // Update canvas
+            const rects = canvas.getObjects('rect');
+            if (rects[idx]) {
+                const rect = rects[idx];
+                rect.set('stroke', CLASS_COLORS[newClass]);
+                rect.className = newClass;
+
+                if (rect.textRef) {
+                    rect.textRef.set({
+                        text: newClass,
+                        fill: CLASS_COLORS[newClass]
+                    });
+                }
+                canvas.renderAll();
+            }
+        }
+
+        // Delete label
+        function deleteLabel(idx) {
+            const rects = canvas.getObjects('rect');
+            if (rects[idx]) {
+                const rect = rects[idx];
+                if (rect.textRef) canvas.remove(rect.textRef);
+                canvas.remove(rect);
+            }
+            currentLabels.splice(idx, 1);
+            updateLabelsList();
+        }
+
+        // Delete selected
+        function deleteSelected() {
+            const active = canvas.getActiveObject();
+            if (active && active.type === 'rect') {
+                if (active.textRef) canvas.remove(active.textRef);
+                canvas.remove(active);
+                updateLabelsFromCanvas();
+            }
+        }
+
+        // Save labels
+        async function saveLabels() {
+            if (!currentFrameId) return;
+
+            const labelsData = currentLabels.map(l => ({
+                class_id: CLASS_NAMES.indexOf(l.class_name),
+                class_name: l.class_name,
+                x_center: l.x_center,
+                y_center: l.y_center,
+                width: l.width,
+                height: l.height,
+                source: l.source || 'manual'
+            }));
+
+            const result = await apiPut(`/frames/${currentVideoId}/${currentFrameId}/labels`, { labels: labelsData });
+            if (result) {
+                showNotification('Saved!', 'success');
+            }
+        }
+
+        // Auto-label
+        async function runAutoLabel() {
+            if (!currentFrameId || !currentVideoId) {
+                showNotification('Load a frame first', 'warning');
+                return;
+            }
+
+            showNotification('Running YOLO...', 'info');
+
+            const confidence = document.getElementById('confidenceSlider').value;
+            const result = await apiPost(`/frames/${currentVideoId}/${currentFrameId}/auto-label`, {
+                confidence_threshold: parseFloat(confidence)
+            });
+
+            if (result) {
+                showNotification(`Found ${result.labels_count} objects`, 'success');
+                loadCurrentFrame();
+            }
+        }
+
+        // Approve
+        async function approveFrame() {
+            if (!currentFrameId || !currentVideoId) return;
+
+            await saveLabels();
+            const result = await apiPost(`/frames/${currentVideoId}/${currentFrameId}/approve`);
+
+            if (result) {
+                showNotification('Approved! ✅', 'success');
+                nextFrame();
+                loadVideos(); // Refresh counts
+            }
+        }
+
+        // Reject
+        async function rejectFrame() {
+            if (!currentFrameId || !currentVideoId) return;
+
+            const result = await apiPost(`/frames/${currentVideoId}/${currentFrameId}/reject`);
+            if (result) {
+                showNotification('Rejected', 'warning');
+                loadCurrentFrame();
+            }
+        }
+
+        // Clear labels
+        function clearLabels() {
+            canvas.getObjects().forEach(obj => canvas.remove(obj));
+            currentLabels = [];
+            updateLabelsList();
+            canvas.renderAll();
+        }
+
+        // Navigation
+        function prevFrame() {
+            if (currentFrameIndex > 0) {
+                currentFrameIndex--;
+                loadCurrentFrame();
+            }
+        }
+
+        function nextFrame() {
+            if (currentFrameIndex < framesList.length - 1) {
+                currentFrameIndex++;
+                loadCurrentFrame();
+            }
+        }
+
+        function goToFrame(idx) {
+            currentFrameIndex = parseInt(idx);
+            loadCurrentFrame();
+        }
+
+        // Update selected class
+        function updateSelectedClass() {
+            selectedClass = document.getElementById('classSelect').value;
+            document.getElementById('classColorPreview').style.background = CLASS_COLORS[selectedClass];
+            document.getElementById('classNamePreview').textContent = selectedClass;
+        }
+
+        // Notification
+        function showNotification(message, type = 'info') {
+            const colors = {
+                success: '#27ae60',
+                warning: '#f39c12',
+                error: '#e74c3c',
+                info: '#3498db'
+            };
+
+            // Remove existing
+            document.querySelectorAll('.notification').forEach(el => el.remove());
+
+            const div = document.createElement('div');
+            div.className = 'notification';
+            div.style.background = colors[type];
+            div.style.color = 'white';
+            div.textContent = message;
+            document.body.appendChild(div);
+
+            setTimeout(() => div.remove(), 2500);
+        }
+
+        // ========== VIDEO DELETE FUNCTIONS ==========
+
+        // Confirm delete video - show modal with info
+        async function confirmDeleteVideo(videoId, filename, event) {
+            event.stopPropagation();
+
+            // Get delete info from backend
+            const info = await apiGet(`/videos/${videoId}/delete-info`);
+            if (!info) {
+                showNotification('Video bilgisi alinamadi', 'error');
+                return;
+            }
+
+            // Create modal
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'deleteModal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <h3>⚠️ Videoyu Sil</h3>
+                    <p><strong>${info.filename}</strong></p>
+                    <div class="warning">
+                        <p><strong>UYARI:</strong> Bu islem geri alinamaz!</p>
+                        <p>📹 <strong>${info.frames_count}</strong> frame silinecek</p>
+                        <p>🏷️ <strong>${info.labels_count}</strong> label silinecek</p>
+                        <p>✅ <strong>${info.approved_frames}</strong> onaylanmis frame var</p>
+                    </div>
+                    <p>Devam etmek istediginize emin misiniz?</p>
+                    <div class="modal-buttons">
+                        <button class="modal-btn-cancel" onclick="closeDeleteModal()">Iptal</button>
+                        <button class="modal-btn-delete" onclick="executeDeleteVideo('${videoId}')">Evet, Sil</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            // Close on overlay click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeDeleteModal();
+            });
+        }
+
+        // Close delete modal
+        function closeDeleteModal() {
+            const modal = document.getElementById('deleteModal');
+            if (modal) modal.remove();
+        }
+
+        // Execute video deletion
+        async function executeDeleteVideo(videoId) {
+            closeDeleteModal();
+            showNotification('Siliniyor...', 'info');
+
+            try {
+                const res = await fetch(`${API_BASE}/videos/${videoId}`, {
+                    method: 'DELETE'
+                });
+                const result = await res.json();
+
+                if (res.ok) {
+                    showNotification(`Silindi: ${result.deleted_frames} frame, ${result.deleted_labels} label`, 'success');
+
+                    // Reset if current video was deleted
+                    if (currentVideoId === videoId) {
+                        currentVideoId = null;
+                        currentFrameId = null;
+                        framesList = [];
+                        currentLabels = [];
+                        canvas.clear();
+                        document.getElementById('statusInfo').textContent = 'Video silindi - Yeni video secin';
+                        document.getElementById('labelCount').textContent = 'Labels: 0';
+                        document.getElementById('frameInfo').textContent = 'Frame: 0 / 0';
+                    }
+
+                    loadVideos();
+                } else {
+                    showNotification('Silme hatasi: ' + (result.detail || 'Unknown error'), 'error');
+                }
+            } catch (err) {
+                showNotification('Silme hatasi: ' + err.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
