@@ -3,48 +3,95 @@ File-based video/frame/label management - No database needed.
 Just scans folders and checks file existence.
 """
 import os
-import cv2
+import sys
 import shutil
-import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional, Generator
 from datetime import datetime
+from contextlib import contextmanager
+
+# Suppress OpenCV/ffmpeg codec warnings - MUST be before cv2 import
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+os.environ["OPENCV_FFMPEG_DEBUG"] = "0"
+os.environ["FFREPORT"] = ""
 
 from backend.config import (
     UPLOADS_DIR, FRAMES_DIR, LABELS_DIR,
     SUPPORTED_VIDEO_EXTENSIONS, CLASS_NAMES
 )
 
-# Suppress OpenCV/ffmpeg codec warnings
-os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
-os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
-os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+
+@contextmanager
+def suppress_stderr():
+    """Context manager to suppress stderr at OS level (ffmpeg/C libraries)"""
+    try:
+        # Save the original stderr file descriptor
+        stderr_fd = sys.stderr.fileno()
+        saved_stderr_fd = os.dup(stderr_fd)
+
+        # Open devnull and redirect stderr to it
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, stderr_fd)
+        os.close(devnull)
+        try:
+            yield
+        finally:
+            # Restore original stderr
+            os.dup2(saved_stderr_fd, stderr_fd)
+            os.close(saved_stderr_fd)
+    except (OSError, AttributeError):
+        # Fallback if file descriptors don't work (e.g., some Windows configs)
+        yield
+
+
+# Lazy load cv2 with stderr suppression
+_cv2 = None
+
+def get_cv2():
+    """Get cv2 module with suppressed warnings on first import"""
+    global _cv2
+    if _cv2 is None:
+        with suppress_stderr():
+            import cv2
+            try:
+                cv2.setLogLevel(0)  # LOG_LEVEL_SILENT
+            except:
+                pass
+            _cv2 = cv2
+    return _cv2
+
+
+# For backwards compatibility, also import numpy here
+import numpy as np
 
 
 def cv2_video_capture(video_path: str):
     """
     Open video file with OpenCV, handling non-ASCII paths on Windows.
+    Suppresses ffmpeg codec warnings.
     """
-    # Try normal open first
-    cap = cv2.VideoCapture(video_path)
-    if cap.isOpened():
-        return cap
+    cv2 = get_cv2()
+    with suppress_stderr():
+        # Try normal open first
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            return cap
 
-    # For non-ASCII paths on Windows, try using numpy file read
-    try:
-        # This is a workaround but doesn't work for video
-        # Fall back to copying to temp file with ASCII name
-        import tempfile
-        ext = Path(video_path).suffix
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp_path = tmp.name
+        # For non-ASCII paths on Windows, copy to temp file
+        try:
+            import tempfile
+            ext = Path(video_path).suffix
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp_path = tmp.name
 
-        shutil.copy2(video_path, tmp_path)
-        cap = cv2.VideoCapture(tmp_path)
-        cap._temp_file = tmp_path  # Store for cleanup
-        return cap
-    except:
-        return cv2.VideoCapture(video_path)
+            shutil.copy2(video_path, tmp_path)
+            cap = cv2.VideoCapture(tmp_path)
+            cap._temp_file = tmp_path  # Store for cleanup
+            return cap
+        except:
+            return cv2.VideoCapture(video_path)
 
 
 class FileManager:
@@ -110,10 +157,13 @@ class FileManager:
             raise ValueError(f"Cannot open video: {video_path}")
 
         try:
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cv2 = get_cv2()
+            # Suppress stderr during property access (ffmpeg codec warnings)
+            with suppress_stderr():
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             duration = total_frames / fps if fps > 0 else 0
 
             return {
@@ -192,7 +242,7 @@ class FileManager:
     # ==================== FRAME OPERATIONS ====================
 
     def extract_frames(self, video_path: str, video_id: str, interval_seconds: int = 10) -> List[Dict]:
-        """Extract frames from video (handles non-ASCII filenames)"""
+        """Extract frames from video (handles non-ASCII filenames, suppresses warnings)"""
         cap = cv2_video_capture(video_path)
         temp_file = getattr(cap, '_temp_file', None)
 
@@ -203,6 +253,7 @@ class FileManager:
 
         frames = []
         try:
+            cv2 = get_cv2()
             fps = cap.get(cv2.CAP_PROP_FPS)
             if fps <= 0:
                 raise ValueError("Invalid FPS")
@@ -218,31 +269,33 @@ class FileManager:
             frame_count = 0
             extracted_count = 0
 
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            # Suppress stderr during frame reading (ffmpeg codec warnings)
+            with suppress_stderr():
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
 
-                if frame_count % frame_interval == 0:
-                    timestamp_sec = frame_count / fps
+                    if frame_count % frame_interval == 0:
+                        timestamp_sec = frame_count / fps
 
-                    # Unique filename
-                    frame_filename = f"{video_id}_frame_{extracted_count:04d}.jpg"
-                    frame_path = frames_dir / frame_filename
+                        # Unique filename
+                        frame_filename = f"{video_id}_frame_{extracted_count:04d}.jpg"
+                        frame_path = frames_dir / frame_filename
 
-                    cv2.imwrite(str(frame_path), frame)
+                        cv2.imwrite(str(frame_path), frame)
 
-                    frames.append({
-                        "frame_id": f"{video_id}_{extracted_count:04d}",
-                        "frame_number": extracted_count,
-                        "timestamp_sec": timestamp_sec,
-                        "image_path": str(frame_path),
-                        "filename": frame_filename
-                    })
+                        frames.append({
+                            "frame_id": f"{video_id}_{extracted_count:04d}",
+                            "frame_number": extracted_count,
+                            "timestamp_sec": timestamp_sec,
+                            "image_path": str(frame_path),
+                            "filename": frame_filename
+                        })
 
-                    extracted_count += 1
+                        extracted_count += 1
 
-                frame_count += 1
+                    frame_count += 1
 
         finally:
             cap.release()
@@ -304,6 +357,7 @@ class FileManager:
             labels = self.read_labels(str(label_path))
 
         # Get image dimensions
+        cv2 = get_cv2()
         img = cv2.imread(str(img_path))
         height, width = img.shape[:2] if img is not None else (0, 0)
 

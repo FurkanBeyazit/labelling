@@ -103,7 +103,8 @@ class AutoLabeler:
 
         # Get image dimensions if not provided
         if image_width is None or image_height is None:
-            import cv2
+            from backend.services.file_manager import get_cv2
+            cv2 = get_cv2()
             img = cv2.imread(image_path)
             if img is not None:
                 image_height, image_width = img.shape[:2]

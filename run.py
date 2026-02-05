@@ -6,6 +6,14 @@ import subprocess
 import sys
 import os
 
+# Suppress ffmpeg/libav warnings BEFORE any imports
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+os.environ["OPENCV_FFMPEG_DEBUG"] = "0"
+os.environ["FFREPORT"] = ""  # Disable ffmpeg report
+os.environ["AV_LOG_FORCE_NOCOLOR"] = "1"
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
