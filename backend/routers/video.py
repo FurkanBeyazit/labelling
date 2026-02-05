@@ -15,7 +15,8 @@ router = APIRouter(prefix="/api/videos", tags=["videos"])
 @router.post("/upload")
 async def upload_video(
     file: UploadFile = File(...),
-    folder_name: Optional[str] = Form(None)
+    folder_name: Optional[str] = Form(None),
+    custom_name: Optional[str] = Form(None)
 ):
     """Upload a single video file"""
     ext = Path(file.filename).suffix.lower()
@@ -28,7 +29,7 @@ async def upload_video(
     content = await file.read()
 
     try:
-        result = file_manager.save_video(content, file.filename, folder_name)
+        result = file_manager.save_video(content, file.filename, folder_name, custom_name)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

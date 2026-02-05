@@ -115,13 +115,21 @@ class FileManager:
         safe_name = safe_name.strip('_')[:50]  # Limit to 50 chars
         return safe_name or "video"
 
-    def save_video(self, file_content: bytes, filename: str, folder_name: Optional[str] = None) -> Dict:
+    def save_video(self, file_content: bytes, filename: str, folder_name: Optional[str] = None, custom_name: Optional[str] = None) -> Dict:
         """Save uploaded video and return info"""
         # Clean filename
         if '/' in filename or '\\' in filename:
             filename = Path(filename.replace('\\', '/')).name
 
-        video_id = self.get_video_id(filename)
+        # Use custom name for video_id if provided, otherwise use filename
+        if custom_name and custom_name.strip():
+            video_id = self.get_video_id(custom_name.strip())
+            # Also rename the file with custom name (keep extension)
+            ext = Path(filename).suffix
+            new_filename = f"{video_id}{ext}"
+        else:
+            video_id = self.get_video_id(filename)
+            new_filename = filename
 
         # Save to uploads folder
         if folder_name:
@@ -130,7 +138,7 @@ class FileManager:
             save_dir = self.uploads_dir
 
         save_dir.mkdir(parents=True, exist_ok=True)
-        save_path = save_dir / filename
+        save_path = save_dir / new_filename
 
         with open(save_path, "wb") as f:
             f.write(file_content)
@@ -140,7 +148,7 @@ class FileManager:
 
         return {
             "video_id": video_id,
-            "filename": filename,
+            "filename": new_filename,
             "path": str(save_path),
             "folder_name": folder_name,
             **info

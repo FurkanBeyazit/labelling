@@ -37,3 +37,6 @@ Thumbs.db
 # Database (if any)
 *.db
 *.sqlite3
+
+#claude
+.claude/*

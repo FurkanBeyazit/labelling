@@ -57,7 +57,7 @@ CLASS_COLORS = [
 AUTO_DETECTABLE_CLASSES = list(range(12))
 
 # Frame extraction intervals (seconds)
-FRAME_INTERVALS = [5, 10, 15, 30]
+FRAME_INTERVALS = [1,5, 10, 15, 30]
 
 # YOLO settings - Custom trained model with 13 classes
 YOLO_MODEL_PATH = str(WEIGHTS_DIR / "best.pt")

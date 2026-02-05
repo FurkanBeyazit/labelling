@@ -17,6 +17,10 @@
   let currentRect;
   let selectedRect = null;
   let canvasLabels = []; // Track labels in canvas
+  let saveStatus = ''; // '', 'saving', 'saved'
+  let zoomLevel = 1;
+  let isPanning = false;
+  let lastPosX, lastPosY;
 
   const CLASS_COLORS = [
     '#FF0000', '#0000FF', '#FFFF00', '#00FF00', '#800080', '#FFA500',
@@ -61,13 +65,40 @@
     fabricCanvas.on('object:modified', updateCanvasLabels);
     fabricCanvas.on('object:moving', onObjectMoving);
     fabricCanvas.on('object:scaling', onObjectMoving);
+    fabricCanvas.on('mouse:wheel', onMouseWheel);
 
     if (frame) {
       loadFrame();
     }
   }
 
+  // Zoom with mouse wheel
+  function onMouseWheel(opt) {
+    const delta = opt.e.deltaY;
+    let zoom = fabricCanvas.getZoom();
+    zoom *= 0.999 ** delta;
+
+    // Limit zoom
+    if (zoom > 5) zoom = 5;
+    if (zoom < 0.5) zoom = 0.5;
+
+    // Zoom to mouse pointer position
+    fabricCanvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+    zoomLevel = zoom;
+
+    opt.e.preventDefault();
+    opt.e.stopPropagation();
+  }
+
+  // Reset zoom
+  function resetZoom() {
+    fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    zoomLevel = 1;
+  }
+
   let lastFrameId = null;
+  let loadingFrameId = null; // Track which frame is currently loading
+
   $: if (frame && fabricCanvas && frame.frame_id !== lastFrameId) {
     lastFrameId = frame.frame_id;
     loadFrame();
@@ -76,13 +107,29 @@
   function loadFrame() {
     if (!fabricCanvas || !frame) return;
 
+    const currentFrameId = frame.frame_id;
+    loadingFrameId = currentFrameId;
+
+    // Clear canvas immediately
     fabricCanvas.clear();
     selectedRect = null;
     canvasLabels = [];
 
+    // Reset zoom when loading new frame
+    fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    zoomLevel = 1;
+
     fabric.Image.fromURL(`/api/frames/${videoId}/${frame.frame_id}/image`, (img) => {
-      const containerWidth = canvasContainer.clientWidth;
-      const containerHeight = canvasContainer.clientHeight - 280;
+      // Check if we're still supposed to show this frame (prevent race condition)
+      if (loadingFrameId !== currentFrameId) {
+        return; // Another frame started loading, abort this one
+      }
+
+      // Clear canvas again inside callback to prevent duplicates
+      fabricCanvas.clear();
+
+      const containerWidth = canvasContainer.clientWidth - 20;
+      const containerHeight = canvasContainer.clientHeight - 200;
 
       const scale = Math.min(
         containerWidth / img.width,
@@ -192,6 +239,15 @@
   }
 
   function onMouseDown(opt) {
+    // Pan with Alt key or middle mouse button
+    if (opt.e.altKey || opt.e.button === 1) {
+      isPanning = true;
+      lastPosX = opt.e.clientX;
+      lastPosY = opt.e.clientY;
+      fabricCanvas.selection = false;
+      return;
+    }
+
     if (opt.target) return;
 
     isDrawing = true;
@@ -214,6 +270,17 @@
   }
 
   function onMouseMove(opt) {
+    // Handle panning
+    if (isPanning) {
+      const vpt = fabricCanvas.viewportTransform;
+      vpt[4] += opt.e.clientX - lastPosX;
+      vpt[5] += opt.e.clientY - lastPosY;
+      lastPosX = opt.e.clientX;
+      lastPosY = opt.e.clientY;
+      fabricCanvas.requestRenderAll();
+      return;
+    }
+
     if (!isDrawing || !currentRect) return;
 
     const pointer = fabricCanvas.getPointer(opt.e);
@@ -231,6 +298,13 @@
   }
 
   function onMouseUp() {
+    // End panning
+    if (isPanning) {
+      isPanning = false;
+      fabricCanvas.selection = false;
+      return;
+    }
+
     if (!isDrawing || !currentRect) return;
 
     isDrawing = false;
@@ -316,12 +390,17 @@
         body: JSON.stringify({ confidence_threshold: confidenceThreshold })
       });
 
-      // Reload frame
+      // Reload frame data and canvas
       const frameRes = await fetch(`/api/frames/${videoId}/${frame.frame_id}`);
       const newFrame = await frameRes.json();
 
+      // Update frame labels directly without triggering reactive twice
+      frame.labels = newFrame.labels;
+
+      // Force reload canvas with new labels
       lastFrameId = null;
-      frame = newFrame;
+      loadFrame();
+
       dispatch('update');
     } catch (e) {
       console.error('Auto-label failed:', e);
@@ -330,6 +409,7 @@
 
   async function saveLabels() {
     const labels = getLabelsFromCanvas();
+    saveStatus = 'saving';
 
     try {
       await fetch(`/api/frames/${videoId}/${frame.frame_id}/labels`, {
@@ -338,15 +418,18 @@
         body: JSON.stringify({ labels })
       });
 
-      // Reload frame
-      const frameRes = await fetch(`/api/frames/${videoId}/${frame.frame_id}`);
-      const newFrame = await frameRes.json();
+      // Update frame labels in place (don't reload canvas - labels are already there)
+      frame.labels = labels;
 
-      lastFrameId = null;
-      frame = newFrame;
+      // Notify parent to update frames list
       dispatch('update');
+
+      // Show success
+      saveStatus = 'saved';
+      setTimeout(() => { saveStatus = ''; }, 2000);
     } catch (e) {
       console.error('Save failed:', e);
+      saveStatus = '';
     }
   }
 
@@ -433,9 +516,9 @@
   }
 </script>
 
-<div class="flex flex-col h-full gap-3" bind:this={canvasContainer}>
-  <!-- Top Controls -->
-  <div class="flex flex-wrap gap-2 items-center">
+<div class="flex flex-col h-full gap-2 overflow-hidden" bind:this={canvasContainer}>
+  <!-- Top Controls - fixed -->
+  <div class="flex flex-wrap gap-2 items-center shrink-0">
     <!-- Class selector for new boxes -->
     <div class="join">
       <span class="join-item btn btn-sm no-animation">New Class:</span>
@@ -466,17 +549,46 @@
     <button class="btn btn-primary btn-sm" on:click={autoLabel}>Auto Label</button>
     <button class="btn btn-error btn-sm" on:click={deleteSelected} disabled={!selectedRect}>Delete</button>
     <button class="btn btn-warning btn-sm" on:click={clearAll}>Clear All</button>
-    <button class="btn btn-success btn-sm" on:click={saveLabels}>Save</button>
+    <button class="btn btn-success btn-sm" on:click={saveLabels} disabled={saveStatus === 'saving'}>
+      {#if saveStatus === 'saving'}
+        Saving...
+      {:else}
+        Save
+      {/if}
+    </button>
+    {#if saveStatus === 'saved'}
+      <span class="badge badge-success gap-1 animate-pulse">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        Saved!
+      </span>
+    {/if}
   </div>
 
-  <!-- Canvas -->
-  <div class="flex-1 flex items-center justify-center bg-base-300 rounded-lg overflow-hidden min-h-[250px]">
+  <!-- Canvas - takes remaining space -->
+  <div class="flex-1 flex items-center justify-center bg-base-300 rounded-lg overflow-hidden min-h-0 relative">
     <canvas bind:this={canvas}></canvas>
+
+    <!-- Zoom controls overlay -->
+    {#if zoomLevel !== 1}
+      <div class="absolute bottom-2 left-2 flex items-center gap-2 bg-base-100/90 rounded-lg px-2 py-1 shadow">
+        <span class="text-xs font-mono">{Math.round(zoomLevel * 100)}%</span>
+        <button class="btn btn-xs btn-ghost" on:click={resetZoom} title="Reset zoom (back to 100%)">
+          Reset
+        </button>
+      </div>
+    {/if}
+
+    <!-- Zoom/Pan hint -->
+    <div class="absolute bottom-2 right-2 text-xs opacity-50 bg-base-100/70 rounded px-2 py-1">
+      Scroll: Zoom | Alt+Drag: Pan
+    </div>
   </div>
 
-  <!-- Labels table -->
-  <div class="bg-base-100 rounded-lg overflow-hidden">
-    <div class="overflow-x-auto max-h-48">
+  <!-- Labels table - fixed height -->
+  <div class="bg-base-100 rounded-lg overflow-hidden shrink-0">
+    <div class="overflow-x-auto max-h-32">
       <table class="table table-xs table-zebra w-full">
         <thead class="sticky top-0 bg-base-200 z-10">
           <tr>
