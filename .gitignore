@@ -1,3 +1,39 @@
-/data
-**/__pycache__
-*.pt
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# Data folders (large files)
+data/uploads/
+data/frames/
+data/labels/
+
+# Weights (large model files)
+weights/*.pt
+
+# Svelte
+frontend/svelte/node_modules/
+frontend/svelte/.svelte-kit/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database (if any)
+*.db
+*.sqlite3

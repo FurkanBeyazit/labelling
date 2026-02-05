@@ -1,10 +1,32 @@
 """
 FastAPI main application - File-based (no database)
 """
+import mimetypes
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+
+# Fix MIME types for JavaScript modules (Windows fix)
+mimetypes.init()
+mimetypes.add_type("application/javascript", ".js", strict=True)
+mimetypes.add_type("text/css", ".css", strict=True)
+mimetypes.add_type("text/html", ".html", strict=True)
+
+
+class FixMimeTypeMiddleware(BaseHTTPMiddleware):
+    """Fix MIME types for static files"""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.endswith('.js'):
+            response.headers['content-type'] = 'application/javascript; charset=utf-8'
+        elif path.endswith('.css'):
+            response.headers['content-type'] = 'text/css; charset=utf-8'
+        elif path.endswith('.html'):
+            response.headers['content-type'] = 'text/html; charset=utf-8'
+        return response
 
 from backend.routers import video, labeling, export
 from backend.config import FRAMES_DIR, UPLOADS_DIR, LABELS_DIR, BASE_DIR
@@ -25,15 +47,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Fix MIME types middleware
+app.add_middleware(FixMimeTypeMiddleware)
+
 # Mount static files for serving images
 app.mount("/static/frames", StaticFiles(directory=str(FRAMES_DIR)), name="frames")
 app.mount("/static/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/static/labels", StaticFiles(directory=str(LABELS_DIR)), name="labels")
 
-# Mount web frontend
+# Mount web frontend (original simple UI)
 WEB_DIR = BASE_DIR / "frontend" / "web"
 if WEB_DIR.exists():
     app.mount("/web", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+
+# Mount Svelte frontend (new UI)
+SVELTE_DIR = BASE_DIR / "frontend" / "svelte" / "build"
+if SVELTE_DIR.exists():
+    app.mount("/svelte", StaticFiles(directory=str(SVELTE_DIR), html=True), name="svelte")
 
 # Include routers
 app.include_router(video.router)
@@ -47,6 +77,8 @@ async def startup_event():
     for d in [FRAMES_DIR, UPLOADS_DIR, LABELS_DIR]:
         d.mkdir(parents=True, exist_ok=True)
     print("Labeling Tool started (file-based, no database)")
+    print("  Simple UI: http://localhost:8000/web/")
+    print("  Svelte UI: http://localhost:8000/svelte/")
 
 
 @app.get("/")

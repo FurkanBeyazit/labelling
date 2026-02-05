@@ -394,11 +394,6 @@ class FileManager:
                     width = float(parts[3])
                     height = float(parts[4])
 
-                    # Optional: confidence (6th field)
-                    confidence = float(parts[5]) if len(parts) > 5 else None
-
-                    
-
                     class_id = CLASS_NAMES.index(class_name) if class_name in CLASS_NAMES else 0
 
                     labels.append({
@@ -407,9 +402,7 @@ class FileManager:
                         "x_center": x_center,
                         "y_center": y_center,
                         "width": width,
-                        "height": height,
-                        "confidence": confidence,
-                        
+                        "height": height
                     })
 
         return labels
@@ -428,14 +421,8 @@ class FileManager:
             lines = []
             for label in labels:
                 class_name = label.get("class_name", CLASS_NAMES[label.get("class_id", 0)])
-                confidence = label.get("confidence")
-                
-
-                # Format: class x y w h conf source
-                if confidence is not None:
-                    line = f"{class_name} {label['x_center']:.6f} {label['y_center']:.6f} {label['width']:.6f} {label['height']:.6f} {confidence:.4f}"
-                else:
-                    line = f"{class_name} {label['x_center']:.6f} {label['y_center']:.6f} {label['width']:.6f} {label['height']:.6f}"
+                # Format: class x y w h (YOLO standard format, nothing else)
+                line = f"{class_name} {label['x_center']:.6f} {label['y_center']:.6f} {label['width']:.6f} {label['height']:.6f}"
                 lines.append(line)
 
             with open(label_path, 'w', encoding='utf-8') as f:
